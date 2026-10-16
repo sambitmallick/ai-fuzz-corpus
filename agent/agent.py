@@ -128,7 +128,7 @@ def read_file(path: str, offset: int = 0) -> str:
     offset = max(0, int(offset))
     part = text[offset:offset + MAX_RESULT_CHARS]
     rest = len(text) - offset - len(part)
-    # ep25 run 4 rewrote its findings four times because reads were cut off SILENTLY and it
+    # ep25 run 4 rewrote its findings five times because reads were cut off SILENTLY and it
     # couldn't tell whether its own file was complete. Say what was cut, and how to get it.
     if rest > 0:
         part += f"\n[... {rest} more chars not shown. read_file(path, offset={offset + len(part)}) for the next part. The file itself is complete: {len(text)} chars.]"

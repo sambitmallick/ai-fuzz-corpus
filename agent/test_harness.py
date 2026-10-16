@@ -89,7 +89,7 @@ check("after the freeze, the findings report is still writable",
 (agent.PROJECT / "review" / "_probe.md").unlink(missing_ok=True)
 check("the prompt shows the budget", "Step 1 of 30 (29 left" in agent.render("g", [], 30))
 
-# reads: never cut silently (ep25 run 4 rewrote its report 4x because it couldn't see the end of it)
+# reads: never cut silently (ep25 run 4 rewrote its report 5x because it couldn't see the end of it)
 big = agent.PROJECT / "review" / "_big.md"
 big.write_text("A" * 20000 + "THE END", encoding="utf-8")
 first = agent.execute({"tool": "read_file", "args": {"path": "review/_big.md"}})

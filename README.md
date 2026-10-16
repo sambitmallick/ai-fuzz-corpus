@@ -44,7 +44,7 @@ versions accept and break exactly **one** field. Coverage went from 2 of 7 to 7 
 | 1 | v1 | 7 of 7 | exit 4, 24 steps | my fuzzer crashed whenever both versions accepted with a different **value**. The agent worked around it by turning `generators.js` into its own probe harness |
 | 2 | v1 | 7 of 7 | out of budget (30) | same verdicts as run 1; spent the budget fighting my crash |
 | 3 | v2 | 7 of 7 at step 11 | out of budget (30) | then polished the generators for 19 more steps and never wrote the findings |
-| 4 | v3 | 7 of 7 at step 10 | exit 4, 27 steps | the harness froze the generators at full coverage; it then rewrote its report 4 times because reads were cut off silently |
+| 4 | v3 | 7 of 7 at step 10 | exit 4, 27 steps | the harness froze the generators at full coverage; it then rewrote its report 5 times because reads were cut off silently |
 
 **The generators are code the harness runs.** In v1, `run.js` `require()`d them. A no-model test
 ([`transcripts/ep25/attack_old_harness.txt`](transcripts/ep25/attack_old_harness.txt)) proved what that
