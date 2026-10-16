@@ -48,5 +48,25 @@ seen = {}
 check("the same read 3x with nothing changed IS stuck", [agent._repeating(seen, rd, "") for _ in range(3)] == [False, False, True])
 check("unknown tool is refused", agent.execute({"tool": "merge_pr", "args": {}}).startswith("ERROR"))
 
+# the model call: a call that never returns must be retried, then handed back (ep25 run 1 crashed here)
+_real_run, _real_sleep = agent.subprocess.run, agent.time.sleep
+calls = []
+
+
+def _hang(*a, **k):
+    calls.append(1)
+    raise agent.subprocess.TimeoutExpired(cmd="claude", timeout=k.get("timeout"))
+
+
+agent.subprocess.run, agent.time.sleep = _hang, (lambda s: None)
+try:
+    agent.ask_model("sys", "prompt")
+    raised = False
+except RuntimeError:
+    raised = True
+finally:
+    agent.subprocess.run, agent.time.sleep = _real_run, _real_sleep
+check("a model call that times out is retried 3x, then raises for the hand-back (not a crash)", raised and len(calls) == 3)
+
 print(f"\n{ok}/{len(checks)} checks passed -- no model, no API call.")
 sys.exit(0 if ok == len(checks) else 1)

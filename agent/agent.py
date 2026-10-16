@@ -18,7 +18,7 @@ oracle, as it was on main) and the current zod 4 build side by side.
     4. budget              MAX_STEPS        30
     5. scope               WRITABLE         fuzz/generators.js + review/ only
     6. guardrails          FORBIDDEN        no `any`, no non-null `!`, no @ts-ignore (in .ts)
-    7. the log + hand-back runs/*.jsonl     exit 2 budget · 3 stuck · 4 needs a human
+    7. the log + hand-back runs/*.jsonl     exit 2 budget · 3 stuck · 4 needs a human · 5 model unavailable
 
 Usage:  python agent/agent.py [--max-steps N] ["<goal>"]
 """
@@ -77,21 +77,29 @@ Tools:
                                 signups + 5000 configs; every group of different answers, and COVERAGE
   done(summary)              -> finish. The harness re-checks everything before it accepts.
 
-Rules: fix the real cause in the source. Never silence an error with `any`, a non-null `!`, or
-@ts-ignore. Never edit test/, corpus/, package.json, tsconfig.json or anything outside the writable
-scope. Prefer the
-library's new API over wrapping the old one. Reply with JSON only: {"thought": "...", "tool": "...", "args": {...}}"""
+Rules: you are investigating, not fixing. Base every claim on evidence you got from a tool, and
+say when something is a guess. Never edit src/, test/, corpus/, oracle/, fuzz/run.js, package.json
+or anything outside the writable scope. Reply with JSON only: {"thought": "...", "tool": "...", "args": {...}}"""
+
+
+MODEL_TIMEOUT = 600   # a full generators file takes a while to write
 
 
 def ask_model(system: str, prompt: str, retries: int = 3) -> dict:
     err = ""
     for attempt in range(1, retries + 1):
-        p = subprocess.run(
-            [CLAUDE, "-p", "--no-session-persistence", "--tools", "",
-             "--output-format", "json", "--system-prompt", system,
-             "--json-schema", json.dumps(ACTION_SCHEMA)],
-            input=prompt, capture_output=True, text=True, encoding="utf-8", timeout=300,
-        )
+        try:
+            p = subprocess.run(
+                [CLAUDE, "-p", "--no-session-persistence", "--tools", "",
+                 "--output-format", "json", "--system-prompt", system,
+                 "--json-schema", json.dumps(ACTION_SCHEMA)],
+                input=prompt, capture_output=True, text=True, encoding="utf-8", timeout=MODEL_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            # ep25 run 1 died here: the retry caught bad replies, not a call that never came back.
+            err = f"no reply within {MODEL_TIMEOUT}s"
+            print(f"   (model call failed, retry {attempt}/{retries}: {err})", flush=True)
+            continue
         try:
             out = json.loads(p.stdout)
             if not out.get("is_error") and "structured_output" in out:
@@ -245,7 +253,11 @@ def run(goal: str, max_steps: int = MAX_STEPS, mode: str = "triage") -> int:
     print(f"agent: upgrade-investigator   mode = {mode}   budget = {max_steps} steps   log = {log_path.name}", flush=True)
     print(f"goal: {goal[:110]}…\n", flush=True)
     for step in range(1, max_steps + 1):
-        action = ask_model(SYSTEM, render(goal, history))
+        try:
+            action = ask_model(SYSTEM, render(goal, history))
+        except RuntimeError as e:
+            _log(log_path, step, {"tool": "(model)", "thought": "", "args": {}}, str(e))
+            return _finish(5, f"⛔ the model is unavailable ({e}). Handing back to a human, work so far is in the log.")
         argtxt = ", ".join(f"{k}={str(v)[:60]!r}" for k, v in (action.get("args") or {}).items() if k != "content")
         print(f"── step {step} ── {action['tool']}({argtxt})", flush=True)
         print(f"   thought: {action['thought'][:160]}", flush=True)
