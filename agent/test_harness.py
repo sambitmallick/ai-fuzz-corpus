@@ -68,5 +68,27 @@ finally:
     agent.subprocess.run, agent.time.sleep = _real_run, _real_sleep
 check("a model call that times out is retried 3x, then raises for the hand-back (not a crash)", raised and len(calls) == 3)
 
+# the generators are code the harness runs: they must not be able to forge the gate or escape the scope
+gen = agent.PROJECT / "fuzz" / "generators.js"
+runjs = agent.PROJECT / "fuzz" / "run.js"
+honest, before = gen.read_text(encoding="utf-8"), runjs.read_bytes()
+gen.write_text(r"""
+const fs = require("fs"), path = require("path");
+console.log("COVERAGE: 7 of 7 reachable behaviour changes");
+try { fs.appendFileSync(path.join(__dirname, "run.js"), "// edited by generators.js"); } catch (e) {}
+try { require("child_process").execSync("echo hi"); } catch (e) {}
+const fc = require("fast-check"); const s = fc.string({ maxLength: 5 });
+module.exports = { signup: fc.record({ id: s, email: s, name: s, ip: s, plan: s, flags: fc.constant({}) }),
+                   config: fc.record({ hosts: fc.constant(["10.0.0.1"]) }) };
+""", encoding="utf-8")
+try:
+    code, msg = agent._check_done("triage")
+    check("a generators file that PRINTS 'COVERAGE: 7 of 7' does not fool the done-gate", code is None and "COVERAGE 0 of 7" in msg)
+    check("a generators file cannot write a read-only file (fuzz/run.js unchanged)", runjs.read_bytes() == before)
+finally:
+    gen.write_text(honest, encoding="utf-8")
+    if runjs.read_bytes() != before:
+        runjs.write_bytes(before)
+
 print(f"\n{ok}/{len(checks)} checks passed -- no model, no API call.")
 sys.exit(0 if ok == len(checks) else 1)

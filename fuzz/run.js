@@ -1,13 +1,29 @@
 // Differential fuzzing: zod 3 (the oracle, as it was on main) vs the current build (zod 4).
 // HARNESS-OWNED: the agent may read this file, never write it. The generators are the agent's job.
 // Run:  npm run build && node fuzz/run.js
-const fc = require("fast-check");
+const path = require("path");
+const v8 = require("v8");
+const { spawnSync } = require("child_process");
 const { answer, key } = require("../corpus/canon");
 const oracle = require("../oracle/zod3");
 const now = require("../dist/src");
-const gens = require("./generators");
 
 const N = 5000, SEED = 20261016;
+
+// The generators are the agent's code. They run in a separate process with read-only file access
+// (Node's permission model): no writes, no child processes, no workers. Only sample DATA comes back.
+// (ep25: the first harness `require`d them here, and a generators file could print a fake COVERAGE
+// line or rewrite this file.)
+const ROOT = path.resolve(__dirname, "..");
+const child = spawnSync(process.execPath,
+  ["--permission", `--allow-fs-read=${ROOT}`, path.join(__dirname, "sample.js"), String(N), String(SEED)],
+  { cwd: ROOT, encoding: "utf8", maxBuffer: 512 * 1024 * 1024 });
+if (child.stderr) process.stderr.write("--- generator output (untrusted, not read by the harness) ---\n" + child.stderr.slice(0, 4000) + "\n");
+if (child.status !== 0) {
+  console.log(`FUZZ FAILED: fuzz/generators.js could not be sampled (exit ${child.status}). See the generator output.`);
+  process.exit(2);
+}
+const samples = v8.deserialize(Buffer.from(child.stdout, "base64"));
 
 // zod 4 behaviour changes that compile (ep23's probe), and how to tell an input exercises one.
 const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -24,8 +40,7 @@ const CHANGES = [
 ];
 const UNREACHABLE = ["datetime() requires seconds (no field uses datetime)"];
 
-function differential(name, arb, a, b) {
-  const xs = fc.sample(arb, { numRuns: N, seed: SEED });
+function differential(name, xs, a, b) {
   const groups = {};
   const results = [];
   for (const x of xs) {
@@ -35,7 +50,9 @@ function differential(name, arb, a, b) {
     let g;
     if (!A.ok && !B.ok) g = "rejected by both, but different fields reported";
     else {
-      const f = [...new Set((A.ok ? B.fields : A.fields || ["value"]).map((p) => p.split(".")[0]))].join(",");
+      // both accepted, value differs: name the fields whose PARSED VALUE changed (the first harness crashed here)
+      const changed = A.ok && B.ok ? Object.keys({ ...A.value, ...B.value }).filter((k) => JSON.stringify(A.value[k]) !== JSON.stringify(B.value[k])) : null;
+      const f = [...new Set((changed || (A.ok ? B.fields : A.fields) || ["value"]).map((p) => p.split(".")[0]))].join(",");
       g = A.ok && !B.ok ? `${f} was ACCEPTED, now REJECTED` : !A.ok && B.ok ? `${f} was REJECTED, now ACCEPTED` : `${f} accepted, but the PARSED VALUE changed`;
     }
     (groups[`${name}: ${g}`] ||= []).push({ x, was: A, now: B });
@@ -46,18 +63,18 @@ function differential(name, arb, a, b) {
 const rep = (k, v) => (typeof v === "number" && !Number.isFinite(v) ? `__${v}__` : v);
 const short = (v, n = 70) => { const s = JSON.stringify(v, rep)?.replace(/"__(-?Infinity|NaN)__"/g, "$1"); return s === undefined ? "undefined" : s.length > n ? s.slice(0, n - 1) + "…" : s; };
 
-const S = differential("signup", gens.signup, oracle.parseSignup, now.parseSignup);
-const C = differential("config", gens.config, oracle.parseConfig, now.parseConfig);
+const S = differential("signup", samples.signup, oracle.parseSignup, now.parseSignup);
+const C = differential("config", samples.config, oracle.parseConfig, now.parseConfig);
 const groups = { ...S.groups, ...C.groups };
 const total = Object.values(groups).reduce((n, g) => n + g.length, 0);
 
-console.log(`FUZZ: ${N} signups + ${N} configs from fuzz/generators.js (seed ${SEED}), zod 3 oracle vs current build`);
+console.log(`FUZZ: ${N} signups + ${N} configs from fuzz/generators.js (seed ${SEED}, sandboxed), zod 3 oracle vs current build`);
 console.log(`  same answer : ${2 * N - total}`);
 console.log(`  DIFFERENT   : ${total}`);
 for (const [g, ds] of Object.entries(groups).sort((p, q) => q[1].length - p[1].length)) {
   console.log(`\n[${ds.length}] ${g}`);
   for (const d of ds.slice(0, 3)) {
-    const field = (d.now.ok ? d.was.fields : d.now.fields || []).map((p) => p.split(".")[0])[0];
+    const field = (d.now.ok ? (d.was.fields || Object.keys(d.x).filter((k) => JSON.stringify(d.was.value?.[k]) !== JSON.stringify(d.now.value?.[k]))) : d.now.fields || []).map((p) => p.split(".")[0])[0];
     const shown = field && d.x[field] !== undefined ? { [field]: d.x[field] } : d.x;
     console.log(`   ${short(shown)}   zod3: ${d.was.ok ? "ok" : (d.was.fields || []).join(",")}  now: ${d.now.ok ? "ok" : (d.now.fields || []).join(",")}`);
   }

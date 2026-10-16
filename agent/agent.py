@@ -162,12 +162,18 @@ def write_file_scoped(path: str, content: str) -> str:
     return write_file(path, content)
 
 
-def run_fuzz() -> str:
+def _fuzz() -> tuple:
+    """(harness output, untrusted generator output). The done-gate reads ONLY the first."""
     b = run_build()
     if not b.startswith("BUILD OK"):
-        return "BUILD FAILED -- fix the build first:\n" + b
+        return "BUILD FAILED -- fix the build first:\n" + b, ""
     r = subprocess.run(["node", "fuzz/run.js"], cwd=PROJECT, capture_output=True, text=True, encoding="utf-8")
-    return (r.stdout + r.stderr).strip()
+    return r.stdout.strip(), r.stderr.strip()
+
+
+def run_fuzz() -> str:
+    out, untrusted = _fuzz()
+    return out + ("\n\n" + untrusted if untrusted else "")
 
 
 TOOLS = {"list_files": list_files, "read_file": read_file, "write_file": write_file_scoped,
@@ -229,8 +235,8 @@ def _repeating(seen: dict, action: dict, result: str) -> bool:
 
 def _check_done(mode: str) -> tuple:
     """The harness checks the definition of done itself. Returns (exit_code or None, message)."""
-    f = run_fuzz()
-    m = re.search(r"COVERAGE: (\d+) of (\d+)", f)
+    f, _untrusted = _fuzz()   # never parse the generators' own output (ep25: it could forge COVERAGE)
+    m = re.search(r"^COVERAGE: (\d+) of (\d+)", f, flags=re.M)
     if not m:
         return None, "NOT DONE -- the harness re-ran the fuzzer and couldn't read COVERAGE:\n" + f[-1500:]
     if m.group(1) != m.group(2):
