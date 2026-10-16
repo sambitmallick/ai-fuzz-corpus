@@ -16,3 +16,16 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test
+      - name: replay yesterday's traffic (golden corpus)
+        run: |
+          node corpus/replay.js | tee corpus-report.txt; status=${PIPESTATUS[0]}
+          { echo '## Golden corpus replay'; echo '```'; cat corpus-report.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          [ "$status" -eq 0 ] && exit 0
+          # Answers changed. That's allowed, but only with a written review a human signs off.
+          if [ ! -f review/corpus-diffs.md ]; then
+            echo "::error::yesterday's traffic gets different answers and review/corpus-diffs.md is missing"; exit 1
+          fi
+          grep -E '^\[[0-9]+\] ' corpus-report.txt | sed -E 's/^\[[0-9]+\] //' | while IFS= read -r g; do
+            grep -qF "$g" review/corpus-diffs.md || { echo "::error::review/corpus-diffs.md doesn't cover: $g"; exit 1; }
+          done
+          echo "::warning::corpus differences are written up in review/corpus-diffs.md: a human signs them off before merge"
