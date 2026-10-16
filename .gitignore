@@ -2,3 +2,4 @@ node_modules/
 dist/
 runs/
 __pycache__/
+corpus-report.txt
