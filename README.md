@@ -36,7 +36,7 @@ almost all of them are "rejected by both, but different fields reported". Covera
 **The agent fixed that itself.** Every run worked out the same technique: start from an input both
 versions accept and break exactly **one** field. Coverage went from 2 of 7 to 7 of 7.
 
-**Four runs, four harness lessons.**
+**Four runs, five fixes to the harness.**
 
 | run | harness | coverage | outcome | what it taught the harness |
 |---|---|---|---|---|
