@@ -1,0 +1,19 @@
+{
+  "name": "signupkit",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A tiny signup + config validation library (strict TypeScript, zod). The target of an AI dependency-upgrade agent.",
+  "main": "dist/src/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test dist/test/*.test.js",
+    "check": "npm run build && npm test"
+  },
+  "dependencies": {
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}
