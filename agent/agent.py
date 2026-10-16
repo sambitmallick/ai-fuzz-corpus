@@ -8,6 +8,7 @@ oracle, as it was on main) and the current zod 4 build side by side.
 
     new tool          run_fuzz()       build, then fuzz/run.js: every group of different answers + COVERAGE
     new scope         WRITABLE         ONLY fuzz/generators.js and review/. Not src/: it investigates, it doesn't fix.
+    phase gate        run()            once the HARNESS reports complete coverage, the generators freeze
     done-gate         _check_done()    the harness re-runs the fuzzer: coverage must be complete, and
                                        review/fuzz-findings.md must cover every difference group.
     hand-back         exit 4           always: a human decides what matters.
@@ -212,14 +213,27 @@ def execute(action: dict, writable: tuple = WRITABLE) -> str:
 
 
 # ──────────────────────────────── 3. THE LOOP ────────────────────────────────
-def render(goal: str, history: list) -> str:
+def render(goal: str, history: list, max_steps: int = MAX_STEPS) -> str:
     lines = [f"GOAL: {goal}", ""]
     for h in history:
         a = h["action"]
         argtxt = ", ".join(f"{k}={json.dumps(v)[:80]}" for k, v in (a.get("args") or {}).items())
         lines += [f"[step {h['step']}] you called {a['tool']}({argtxt})", "→ " + h["result"], ""]
-    lines.append(f"Step {len(history) + 1}. Decide the single next action.")
+    n = len(history) + 1
+    # ep25: two of three runs spent their budget polishing and never wrote the findings. Show the budget.
+    lines.append(f"Step {n} of {max_steps} ({max_steps - n} left after this one). Decide the single next action.")
     return "\n".join(lines)
+
+
+def coverage_complete(fuzz_result: str) -> bool:
+    """Read ONLY the harness's part of a run_fuzz result (never the generators' untrusted output)."""
+    trusted = fuzz_result.split("--- generator output (untrusted")[0]
+    m = re.search(r"^COVERAGE: (\d+) of (\d+)", trusted, flags=re.M)
+    return bool(m) and m.group(1) == m.group(2)
+
+
+FROZEN_NOTE = ("\n\nHARNESS: coverage is complete. fuzz/generators.js is now FROZEN (writes refused): the fuzzer's job "
+               "is done. Spend the remaining steps on review/fuzz-findings.md, then call done.")
 
 
 def _repeating(seen: dict, action: dict, result: str) -> bool:
@@ -260,7 +274,7 @@ def run(goal: str, max_steps: int = MAX_STEPS, mode: str = "triage") -> int:
     print(f"goal: {goal[:110]}…\n", flush=True)
     for step in range(1, max_steps + 1):
         try:
-            action = ask_model(SYSTEM, render(goal, history))
+            action = ask_model(SYSTEM, render(goal, history, max_steps))
         except RuntimeError as e:
             _log(log_path, step, {"tool": "(model)", "thought": "", "args": {}}, str(e))
             return _finish(5, f"⛔ the model is unavailable ({e}). Handing back to a human, work so far is in the log.")
@@ -278,6 +292,10 @@ def run(goal: str, max_steps: int = MAX_STEPS, mode: str = "triage") -> int:
             result = check
         else:
             result = execute(action, writable)
+            # the phase gate: once the HARNESS says coverage is complete, the generators are frozen
+            if action["tool"] == "run_fuzz" and "fuzz/generators.js" in writable and coverage_complete(result):
+                writable = tuple(w for w in writable if w != "fuzz/generators.js")
+                result += FROZEN_NOTE
         _log(log_path, step, action, result)
         preview = result if len(result) < 400 else result[:400] + " …"
         print("   result : " + preview.replace("\n", "\n            "), flush=True)
