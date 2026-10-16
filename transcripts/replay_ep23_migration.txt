@@ -1,0 +1,27 @@
+CORPUS signups-2026-10-15.jsonl: 400 recorded requests (answers from production, zod 3)
+  same answer : 367
+  DIFFERENT   : 33
+
+[24] id — was ACCEPTED, now REJECTED
+   #4    "7c9c822e-844b-b6d5-e4a5-8d9348a890e3"                         id: Invalid UUID
+   #15   "06e1162b-72d8-96ee-ec15-8566d817f9cb"                         id: Invalid UUID
+   #46   "ef5fc079-7648-7e6a-07b2-cb75b2ac5ff2"                         id: Invalid UUID
+   #80   "7faf76fe-fc42-8e30-4322-f103f8aebc79"                         id: Invalid UUID
+   … and 20 more
+
+[2] age — was ACCEPTED, now REJECTED
+   #38   1e+21                                                          age: Too big: expected int to be <=9007199254740991
+   #204  9007199254740992                                               age: Too big: expected int to be <=9007199254740991
+
+[3] ip — was ACCEPTED, now REJECTED
+   #42   "fe80::1%eth0"                                                 ip: Invalid input
+   #139  "fe80::1%eth0"                                                 ip: Invalid input
+   #333  "fe80::1%eth0"                                                 ip: Invalid input
+
+[3] name — was REJECTED, now ACCEPTED
+   #89   "✨🌸 Priya 🌸✨ 🌸🌸🌸🌸🌸🌸🌸🌸🌸🌸🌸🌸🌸🌸🌸🌸🌸🌸🌸🌸🌸🌸…   name: zod 3 said "name: String must contain at most 80 character(s)"
+   #177  "🎮🎮🎮 Mateo 🎮🎮🎮 🎮🎮🎮🎮🎮🎮🎮🎮🎮🎮🎮🎮🎮🎮🎮🎮🎮🎮🎮…   name: zod 3 said "name: String must contain at most 80 character(s)"
+   #265  "🦄🦄🦄🦄🦄🦄🦄🦄🦄🦄🦄🦄🦄🦄🦄🦄🦄🦄🦄🦄🦄🦄🦄🦄🦄🦄🦄🦄🦄…   name: zod 3 said "name: String must contain at most 80 character(s)"
+
+[1] email,id — rejected, but for a different field
+   #123  "zoe.hopper@@example.com"                                      id: Invalid UUID
