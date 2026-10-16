@@ -53,7 +53,7 @@ and the same file rewrote `fuzz/run.js`, which is outside the writable scope. No
 The harness can't rely on it. Now the generators run sandboxed, and the gate only reads the harness's
 own output.
 
-## The findings ([`review/fuzz-findings.md`](https://github.com/sambitmallick/ai-fuzz-corpus/blob/agent-run-4/review/fuzz-findings.md), run 4)
+## The findings ([`review/fuzz-findings.md`](review/fuzz-findings.md), run 4)
 
 | group | inputs | run 4 verdict |
 |---|---|---|
