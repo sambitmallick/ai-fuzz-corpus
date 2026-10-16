@@ -92,4 +92,4 @@ are allowed, but only if `review/corpus-diffs.md` covers every group. Otherwise 
 5. **Measure the corpus's coverage.** Anything the traffic never sends is still invisible: config, edge numbers, unused formats.
 
 ---
-🎬 Full walkthrough: **[DevOps Autopilot](https://www.youtube.com/@DevOpsAutopilot)**
+🎬 Full walkthrough: **[the video](https://youtu.be/g_4YLgEAMtY)** · channel: **[DevOps Autopilot](https://www.youtube.com/@DevOpsAutopilot)**
