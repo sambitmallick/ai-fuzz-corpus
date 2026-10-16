@@ -201,6 +201,17 @@ def render(goal: str, history: list) -> str:
     return "\n".join(lines)
 
 
+def _repeating(seen: dict, action: dict, result: str) -> bool:
+    """Thrashing = the same call, with the same arguments, against the same world.
+    A successful write changes the world, so re-reading a file after editing it isn't a repeat.
+    (ep24's first run tripped the old whole-run counter on exactly that.)"""
+    if action["tool"] == "write_file" and result.startswith("wrote "):
+        seen.clear()
+    key = json.dumps(action["tool"]) + json.dumps(action.get("args"), sort_keys=True)
+    seen[key] = seen.get(key, 0) + 1
+    return seen[key] >= MAX_REPEATS
+
+
 def _check_done(mode: str) -> tuple:
     """The harness checks the definition of done itself. Returns (exit_code or None, message)."""
     t = run_tests()
@@ -251,9 +262,7 @@ def run(goal: str, max_steps: int = MAX_STEPS, mode: str = "zero") -> int:
         preview = result if len(result) < 400 else result[:400] + " …"
         print("   result : " + preview.replace("\n", "\n            "), flush=True)
         history.append({"step": step, "action": action, "result": result})
-        key = json.dumps(action["tool"]) + json.dumps(action.get("args"), sort_keys=True)
-        seen[key] = seen.get(key, 0) + 1
-        if seen[key] >= MAX_REPEATS:
+        if _repeating(seen, action, result):
             return _finish(3, f"⛔ stuck: repeated {action['tool']} {MAX_REPEATS}× with the same arguments. Handing back to a human.")
     return _finish(2, f"⛔ hit the {max_steps}-step budget without finishing. Handing back to a human — last result:\n{history[-1]['result'][:600] if history else ''}")
 
