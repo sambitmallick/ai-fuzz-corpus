@@ -67,7 +67,7 @@ Each turn you choose ONE action; the harness executes it and shows you the resul
 
 Tools:
   list_files()               -> the files in the project (source, tests, config)
-  read_file(path)            -> the contents of a file. You may read anything, including
+  read_file(path, offset=0)  -> the contents of a file (long files come in parts; the result says so). Anything, including
                                 node_modules/<package>/... (the installed library's own types and docs)
   write_file(path, content)  -> replace a file's ENTIRE contents. Only fuzz/generators.js and review/ are writable.
   run_build()                -> `npm run build` (strict tsc); returns the errors, or BUILD OK
@@ -123,8 +123,16 @@ def list_files() -> str:
     return "\n".join(str(p.relative_to(PROJECT)).replace("\\", "/") for p in sorted(files))
 
 
-def read_file(path: str) -> str:
-    return (PROJECT / path).read_text(encoding="utf-8")
+def read_file(path: str, offset: int = 0) -> str:
+    text = (PROJECT / path).read_text(encoding="utf-8")
+    offset = max(0, int(offset))
+    part = text[offset:offset + MAX_RESULT_CHARS]
+    rest = len(text) - offset - len(part)
+    # ep25 run 4 rewrote its findings four times because reads were cut off SILENTLY and it
+    # couldn't tell whether its own file was complete. Say what was cut, and how to get it.
+    if rest > 0:
+        part += f"\n[... {rest} more chars not shown. read_file(path, offset={offset + len(part)}) for the next part. The file itself is complete: {len(text)} chars.]"
+    return part
 
 
 def write_file(path: str, content: str) -> str:
@@ -207,7 +215,10 @@ def execute(action: dict, writable: tuple = WRITABLE) -> str:
         if hits:
             return f"REFUSED: that write would silence an error with {', '.join(hits)}. Fix the real cause instead."
     try:
-        return str(TOOLS[tool](**args))[:MAX_RESULT_CHARS]
+        out = str(TOOLS[tool](**args))
+        if tool == "read_file" or len(out) <= MAX_RESULT_CHARS + 300:
+            return out
+        return out[:MAX_RESULT_CHARS] + f"\n[... output truncated: {len(out) - MAX_RESULT_CHARS} more chars not shown]"
     except Exception as e:
         return f"ERROR: {type(e).__name__}: {e}"
 

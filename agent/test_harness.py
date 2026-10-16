@@ -32,9 +32,17 @@ check("the generators ARE writable", not w("fuzz/generators.js", open(agent.PROJ
 check("the findings report IS writable", not w("review/_probe.md").startswith("REFUSED"))
 (agent.PROJECT / "review" / "_probe.md").unlink(missing_ok=True)
 
-# the done-gate: the harness re-runs the fuzzer itself
-code, msg = agent._check_done("triage")
-check("done-gate re-runs the fuzzer and refuses at incomplete coverage", code is None and "COVERAGE 2 of 7" in msg)
+# the done-gate: the harness re-runs the fuzzer itself (with a deliberately weak generators file)
+_gen = agent.PROJECT / "fuzz" / "generators.js"
+_saved = _gen.read_text(encoding="utf-8")
+_gen.write_text('const fc = require("fast-check");\n'
+                'const base = { id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8", email: "a@b.com", name: "ada", ip: "10.0.0.9", plan: "free", flags: {} };\n'
+                'module.exports = { signup: fc.constant(base), config: fc.constant({ hosts: ["10.0.0.1"] }) };\n', encoding="utf-8")
+try:
+    code, msg = agent._check_done("triage")
+finally:
+    _gen.write_text(_saved, encoding="utf-8")
+check("done-gate re-runs the fuzzer and refuses at incomplete coverage", code is None and "COVERAGE 1 of 7" in msg)
 
 # the stuck detector
 seen = {}
@@ -80,6 +88,15 @@ check("after the freeze, the findings report is still writable",
       not agent.execute({"tool": "write_file", "args": {"path": "review/_probe.md", "content": "x"}}, frozen).startswith("REFUSED"))
 (agent.PROJECT / "review" / "_probe.md").unlink(missing_ok=True)
 check("the prompt shows the budget", "Step 1 of 30 (29 left" in agent.render("g", [], 30))
+
+# reads: never cut silently (ep25 run 4 rewrote its report 4x because it couldn't see the end of it)
+big = agent.PROJECT / "review" / "_big.md"
+big.write_text("A" * 20000 + "THE END", encoding="utf-8")
+first = agent.execute({"tool": "read_file", "args": {"path": "review/_big.md"}})
+check("a long read says it was cut, and how to get the rest", "more chars not shown" in first and "offset=8000" in first)
+last = agent.execute({"tool": "read_file", "args": {"path": "review/_big.md", "offset": 16000}})
+check("read_file(offset=...) reaches the end of the file", last.endswith("THE END"))
+big.unlink()
 
 # the generators are code the harness runs: they must not be able to forge the gate or escape the scope
 gen = agent.PROJECT / "fuzz" / "generators.js"
