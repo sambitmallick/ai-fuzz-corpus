@@ -87,4 +87,4 @@ it right.
 5. **The agent triages, a human decides.** Same evidence, different verdicts. Read the evidence.
 
 ---
-🎬 Full walkthrough: **[DevOps Autopilot](https://www.youtube.com/@DevOpsAutopilot)**
+🎬 Full walkthrough: **[the video](https://youtu.be/aB1ht9doqHE)** · channel: **[DevOps Autopilot](https://www.youtube.com/@DevOpsAutopilot)**
