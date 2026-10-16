@@ -5,7 +5,8 @@ export type Result<T> = { ok: true; value: T } | { ok: false; problems: string[]
 
 /** Turn a ZodError into "path: message" lines a human can read. */
 export function describe(err: z.ZodError): string[] {
-  return err.errors.map((e) => `${e.path.join(".") || "(root)"}: ${e.message}`);
+  // zod 4 dropped the `.errors` alias; the issue list is `.issues`.
+  return err.issues.map((e) => `${e.path.join(".") || "(root)"}: ${e.message}`);
 }
 
 export function parseSignup(input: unknown): Result<Signup> {
