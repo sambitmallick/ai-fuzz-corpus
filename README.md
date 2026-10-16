@@ -59,7 +59,7 @@ doesn't mean "safe". It means **"the upgrade undone"**: some differences are the
 
 Same agent, one sentence of goal changed. It restored the zone ids and the name length, **left the
 age check as zod 4 has it** ("an age above 9e15 is nonsense"), and handed back with exit 4 and
-[`review/corpus-diffs.md`](review/corpus-diffs.md) on the PR branch: one section per group, a
+[`review/corpus-diffs.md`](https://github.com/sambitmallick/ai-upgrade-corpus/blob/dependabot/npm_and_yarn/zod-4.6.5/review/corpus-diffs.md) on the PR branch: one section per group, a
 recommendation, a sign-off checklist. Two lines in it are wrong, and they're the reason the human
 reads it:
 
