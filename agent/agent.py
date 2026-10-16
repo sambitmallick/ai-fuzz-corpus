@@ -1,27 +1,26 @@
 #!/usr/bin/env python3
 """
-agent.py — the ep23 upgrade agent, given the one thing it was missing: yesterday's traffic.
+agent.py -- ep25: the upgrade agent becomes the investigator.
 
-The PR bumped a dependency (zod 3 -> 4). The build and the tests are red. The agent
-migrates src/ — and now there's a third check: a golden corpus of 400 real requests
-with the answers production gave them. Same seven harness components, plus:
+Last episode the corpus replay covered what yesterday's traffic sent, and nothing else. This
+episode the agent gets a differential fuzzer: fast-check generators, run through zod 3 (the
+oracle, as it was on main) and the current zod 4 build side by side.
 
-    new tool          run_corpus()     replay the corpus through the current build, list what changed
-    new done-gate     _check_done()    the HARNESS re-runs tests + corpus before it accepts "done".
-                                       The model's word is not evidence.
-    new hand-back     exit 4           (--mode review) the differences are written up for a human
+    new tool          run_fuzz()       build, then fuzz/run.js: every group of different answers + COVERAGE
+    new scope         WRITABLE         ONLY fuzz/generators.js and review/. Not src/: it investigates, it doesn't fix.
+    done-gate         _check_done()    the harness re-runs the fuzzer: coverage must be complete, and
+                                       review/fuzz-findings.md must cover every difference group.
+    hand-back         exit 4           always: a human decides what matters.
 
     1. the model call      ask_model()      stateless, retried; the harness is the memory
-    2. the tools           TOOLS            list / read / write / run_build / run_tests / run_corpus
+    2. the tools           TOOLS            list / read / write / run_build / run_tests / run_corpus / run_fuzz
     3. the loop            run()            perceive -> decide -> act -> observe
     4. budget              MAX_STEPS        30
-    5. scope               WRITABLE         src/ only (+ review/ in review mode). Never test/ or corpus/
-    6. guardrails          FORBIDDEN        no `any`, no non-null `!`, no @ts-ignore
-    7. the log + hand-back runs/*.jsonl     exit 0 done · 2 budget · 3 stuck · 4 needs a human
+    5. scope               WRITABLE         fuzz/generators.js + review/ only
+    6. guardrails          FORBIDDEN        no `any`, no non-null `!`, no @ts-ignore (in .ts)
+    7. the log + hand-back runs/*.jsonl     exit 2 budget · 3 stuck · 4 needs a human
 
-Usage:  python agent/agent.py [--mode zero|review] [--max-steps N] ["<goal>"]
-  --mode zero    done = build + tests + ZERO corpus differences          (the obvious definition)
-  --mode review  done = build + tests + every difference written up in review/corpus-diffs.md
+Usage:  python agent/agent.py [--max-steps N] ["<goal>"]
 """
 import json, re, shutil, subprocess, sys, time
 from pathlib import Path
@@ -35,19 +34,17 @@ HERE = Path(__file__).resolve().parent
 PROJECT = HERE.parent                   # the repo root: the code the agent works on
 RUNS = PROJECT / "runs"
 
-UPGRADE = ("This pull request bumps the dependency `zod` from 3.25 to 4.6. The build and the tests are "
-           "now failing. Migrate the code under src/ to zod 4's API. ")
 GOALS = {
-    "zero": UPGRADE + ("Done means three things: `npm run build` passes, `npm test` passes, and run_corpus shows "
-                       "0 differences: yesterday's production traffic gets yesterday's answers. The tests and the "
-                       "corpus are the contract: do not change them. Do not change package.json."),
-    "review": UPGRADE + ("Done means: `npm run build` passes, `npm test` passes, and run_corpus has been run on the "
-                         "migrated code. Some differences may be zod 4 fixing a real bug; some may break real users. "
-                         "You don't decide that alone. For EVERY group of differences, either change the code so "
-                         "yesterday's answer comes back, or leave it and explain it. Then write review/corpus-diffs.md: "
-                         "one section per group (copy the group's heading line from run_corpus), what changed, how many "
-                         "requests, your recommendation (KEEP OLD or ACCEPT NEW) and why. A human signs it off. "
-                         "The tests and the corpus are the contract: do not change them. Do not change package.json."),
+    "triage": ("signupkit was upgraded from zod 3.25 to zod 4.6 and merged. The build, the tests and a replay "
+               "of yesterday's traffic (corpus/) all passed, but the replay can only see what yesterday's traffic "
+               "sent. Your job is to find what it missed. fuzz/run.js runs your generators (fuzz/generators.js) "
+               "through zod 3 (oracle/zod3.js, the code as it was before the upgrade) and the current build side "
+               "by side, groups every different answer, and reports COVERAGE of zod 4's behaviour changes. "
+               "1) Improve fuzz/generators.js until COVERAGE is complete. 2) For EVERY group of differences, decide "
+               "MATTERS or NOISE, with evidence and a reason. 3) Write review/fuzz-findings.md: one section per group "
+               "(copy the group's heading line from run_fuzz exactly), what changed, how many inputs, MATTERS or "
+               "NOISE, why, and what a human should do. You may only write fuzz/generators.js and files under "
+               "review/. Do not change src/, test/, corpus/, oracle/ or fuzz/run.js: you investigate, a human decides."),
 }
 
 # ───────────────────────────── 1. THE MODEL CALL ─────────────────────────────
@@ -57,7 +54,7 @@ ACTION_SCHEMA = {
     "type": "object",
     "properties": {
         "thought": {"type": "string"},
-        "tool": {"type": "string", "enum": ["list_files", "read_file", "write_file", "run_build", "run_tests", "run_corpus", "done"]},
+        "tool": {"type": "string", "enum": ["list_files", "read_file", "write_file", "run_build", "run_tests", "run_corpus", "run_fuzz", "done"]},
         "args": {"type": "object"},
     },
     "required": ["thought", "tool", "args"],
@@ -71,11 +68,13 @@ Tools:
   list_files()               -> the files in the project (source, tests, config)
   read_file(path)            -> the contents of a file. You may read anything, including
                                 node_modules/<package>/... (the installed library's own types and docs)
-  write_file(path, content)  -> replace a file's ENTIRE contents. Only files under src/ are writable.
+  write_file(path, content)  -> replace a file's ENTIRE contents. Only fuzz/generators.js and review/ are writable.
   run_build()                -> `npm run build` (strict tsc); returns the errors, or BUILD OK
   run_tests()                -> builds, then `npm test`; returns the failures, or TESTS OK
   run_corpus()               -> builds, then replays yesterday's production traffic (corpus/) through
                                 the code; lists every request whose answer changed, grouped
+  run_fuzz()                 -> builds, then fuzz/run.js: zod 3 vs the current build on 5000 generated
+                                signups + 5000 configs; every group of different answers, and COVERAGE
   done(summary)              -> finish. The harness re-checks everything before it accepts.
 
 Rules: fix the real cause in the source. Never silence an error with `any`, a non-null `!`, or
@@ -155,16 +154,24 @@ def write_file_scoped(path: str, content: str) -> str:
     return write_file(path, content)
 
 
+def run_fuzz() -> str:
+    b = run_build()
+    if not b.startswith("BUILD OK"):
+        return "BUILD FAILED -- fix the build first:\n" + b
+    r = subprocess.run(["node", "fuzz/run.js"], cwd=PROJECT, capture_output=True, text=True, encoding="utf-8")
+    return (r.stdout + r.stderr).strip()
+
+
 TOOLS = {"list_files": list_files, "read_file": read_file, "write_file": write_file_scoped,
-         "run_build": run_build, "run_tests": run_tests, "run_corpus": run_corpus}
+         "run_build": run_build, "run_tests": run_tests, "run_corpus": run_corpus, "run_fuzz": run_fuzz}
 
 # ───────────────────────── 4/5/6. BUDGET · SCOPE · GUARDRAILS ────────────────
 MAX_STEPS = 30
 MAX_REPEATS = 3
 MAX_RESULT_CHARS = 8000
 
-WRITABLE = ("src/",)                  # the tests and the corpus are the contract; package.json is the PR's job
-REPORT = "review/corpus-diffs.md"     # review mode: the one extra file the agent may write
+WRITABLE = ("fuzz/generators.js", "review/")                  # the tests and the corpus are the contract; package.json is the PR's job
+REPORT = "review/fuzz-findings.md"     # review mode: the one extra file the agent may write
 
 FORBIDDEN = {
     "`any`":            r"\bas any\b|:\s*any\b",
@@ -179,8 +186,8 @@ def execute(action: dict, writable: tuple = WRITABLE) -> str:
         return f"ERROR: unknown tool '{tool}'"
     if tool == "write_file":
         path = str(args.get("path", "")).replace("\\", "/")
-        if ".." in path or not path.startswith(writable):
-            return f"REFUSED: '{path}' is outside the writable scope {writable}. Migrate the source; the tests, the corpus and package.json stay as they are."
+        if ".." in path or not any(path == w or (w.endswith("/") and path.startswith(w)) for w in writable):
+            return f"REFUSED: '{path}' is outside the writable scope {writable}. You investigate: only fuzz/generators.js and review/ are writable. The code, the oracle, the corpus and the fuzz runner stay as they are."
         hits = [name for name, pat in FORBIDDEN.items() if path.endswith(".ts") and re.search(pat, str(args.get("content", "")))]
         if hits:
             return f"REFUSED: that write would silence an error with {', '.join(hits)}. Fix the real cause instead."
@@ -214,33 +221,28 @@ def _repeating(seen: dict, action: dict, result: str) -> bool:
 
 def _check_done(mode: str) -> tuple:
     """The harness checks the definition of done itself. Returns (exit_code or None, message)."""
-    t = run_tests()
-    if not t.startswith("TESTS OK"):
-        return None, "NOT DONE — the harness re-ran the tests:\n" + t[:1500]
-    c = run_corpus()
-    m = re.search(r"DIFFERENT\s*:\s*(\d+)", c)
-    n = int(m.group(1)) if m else -1
-    if n == 0:
-        return 0, f"{t} · corpus: 0 differences"
-    if mode == "zero":
-        return None, f"NOT DONE — the harness re-ran the corpus: {n} differences remain.\n" + c[:2500]
+    f = run_fuzz()
+    m = re.search(r"COVERAGE: (\d+) of (\d+)", f)
+    if not m:
+        return None, "NOT DONE -- the harness re-ran the fuzzer and couldn't read COVERAGE:\n" + f[-1500:]
+    if m.group(1) != m.group(2):
+        return None, f"NOT DONE -- the harness re-ran the fuzzer: COVERAGE {m.group(1)} of {m.group(2)}.\n" + f[-2500:]
     report = PROJECT / REPORT
     if not report.exists():
-        return None, f"NOT DONE — {n} corpus differences remain and {REPORT} doesn't exist yet."
+        return None, f"NOT DONE -- coverage is complete, but {REPORT} doesn't exist yet."
     text = report.read_text(encoding="utf-8")
-    groups = re.findall(r"^\[\d+\] (.+)$", c, flags=re.M)
+    groups = re.findall(r"^\[\d+\] (.+)$", f, flags=re.M)
     missing = [g for g in groups if g not in text]
     if missing:
-        return None, f"NOT DONE — {REPORT} doesn't cover these groups (copy each heading line exactly): " + "; ".join(missing)
-    return 4, f"{t} · corpus: {n} differences, written up in {REPORT}"
+        return None, f"NOT DONE -- {REPORT} doesn't cover these groups (copy each heading line exactly): " + "; ".join(missing)
+    return 4, f"COVERAGE {m.group(1)} of {m.group(2)} · {len(groups)} difference groups, all written up in {REPORT}"
 
-
-def run(goal: str, max_steps: int = MAX_STEPS, mode: str = "zero") -> int:
+def run(goal: str, max_steps: int = MAX_STEPS, mode: str = "triage") -> int:
     RUNS.mkdir(exist_ok=True)
     log_path = RUNS / time.strftime("%Y%m%d-%H%M%S.jsonl")
     history, seen = [], {}
-    writable = WRITABLE + (("review/",) if mode == "review" else ())
-    print(f"agent: upgrade-fixer   mode = {mode}   budget = {max_steps} steps   log = {log_path.name}", flush=True)
+    writable = WRITABLE
+    print(f"agent: upgrade-investigator   mode = {mode}   budget = {max_steps} steps   log = {log_path.name}", flush=True)
     print(f"goal: {goal[:110]}…\n", flush=True)
     for step in range(1, max_steps + 1):
         action = ask_model(SYSTEM, render(goal, history))
@@ -280,7 +282,7 @@ def _finish(code: int, message: str) -> int:
 
 if __name__ == "__main__":
     argv = sys.argv[1:]
-    mode = argv[argv.index("--mode") + 1] if "--mode" in argv else "zero"
+    mode = argv[argv.index("--mode") + 1] if "--mode" in argv else "triage"
     steps = int(argv[argv.index("--max-steps") + 1]) if "--max-steps" in argv else MAX_STEPS
     flagvals = {argv[i + 1] for i, a in enumerate(argv[:-1]) if a in ("--mode", "--max-steps")}
     goal = next((a for a in argv if not a.startswith("--") and a not in flagvals), GOALS[mode])
