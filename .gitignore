@@ -1,5 +1,6 @@
-node_modules/
-dist/
-runs/
 __pycache__/
 corpus-report.txt
+corpus-report.txt
+dist/
+node_modules/
+runs/

@@ -1,0 +1,14 @@
+FUZZ: 5000 signups + 5000 configs from fuzz/generators.js (seed 20261016, sandboxed), zod 3 oracle vs current build
+  same answer : 10000
+  DIFFERENT   : 0
+
+COVERAGE (an input counts only if every other field is valid):
+  MISSING  UUID version/variant bits                  0 isolated inputs
+  MISSING  IPv6 zone ids (fe80::1%eth0)               0 isolated inputs
+  MISSING  IPv6 zone ids in config hosts              0 isolated inputs
+  MISSING  z.number() rejects Infinity                0 isolated inputs
+  MISSING  .int() means SAFE integer                  0 isolated inputs
+  MISSING  .max() counts characters                   0 isolated inputs
+  MISSING  .default({}) and inner defaults            0 isolated inputs
+  n/a      datetime() requires seconds (no field uses datetime)
+COVERAGE: 0 of 7 reachable behaviour changes

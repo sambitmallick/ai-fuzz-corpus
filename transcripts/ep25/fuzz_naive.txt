@@ -1,0 +1,34 @@
+FUZZ: 5000 signups + 5000 configs from fuzz/generators.js (seed 20261016, sandboxed), zod 3 oracle vs current build
+  same answer : 6068
+  DIFFERENT   : 3932
+
+[1794] signup: rejected by both, but different fields reported
+   {"age":9.558522096062336e+221}   zod3: email,flags.򄩎𲕅񺡾􇂶𠬋𫊎􉝻,id,ip  now: age,email,flags.򄩎𲕅񺡾􇂶𠬋𫊎􉝻,id,ip
+   {"age":-Infinity}   zod3: age,id,ip,name,website  now: age,id,name,website
+   {"age":9007199254740992}   zod3: email,prefs.theme  now: age,email,prefs.theme
+
+[1689] config: rejected by both, but different fields reported
+   {"timeoutMs":-4e-323}   zod3: hosts.0,timeoutMs  now: timeoutMs
+   {"hosts":["𞚇󔶝򍶰𸭒𙊻","::5f:aa5:5:e:07ba:75.207.193.114","0::48:4c:e…   zod3: hosts.0,hosts.1,hosts.2,hosts.3  now: hosts.0,hosts.3
+   {"hosts":["6.0xff.0x18fd","eb:c69::3:e2:f0%eth0"]}   zod3: hosts.0,hosts.1,timeoutMs  now: hosts.0,timeoutMs
+
+[431] config: hosts was REJECTED, now ACCEPTED
+   {"hosts":["e7:4f0:904:8a::1bc:250.14.74.195%eth0","8c:cc7d::7c8f:0f5:…   zod3: hosts.0,hosts.1  now: ok
+   {"hosts":["252.238.250.250","87:1800:b:2:8:2:188.223.187.43%eth0"]}   zod3: hosts.1  now: ok
+   {"hosts":["a35b::8:e8f:ec4:6:200.152.6.195","::384:f:7:c:69.4.229.23"…   zod3: hosts.0,hosts.1  now: ok
+
+[18] config: timeoutMs was ACCEPTED, now REJECTED
+   {"timeoutMs":Infinity}   zod3: ok  now: timeoutMs
+   {"timeoutMs":Infinity}   zod3: ok  now: timeoutMs
+   {"timeoutMs":Infinity}   zod3: ok  now: timeoutMs
+
+COVERAGE (an input counts only if every other field is valid):
+  MISSING  UUID version/variant bits                  0 isolated inputs
+  MISSING  IPv6 zone ids (fe80::1%eth0)               0 isolated inputs
+  covered  IPv6 zone ids in config hosts            959 isolated inputs
+  covered  z.number() rejects Infinity               36 isolated inputs
+  MISSING  .int() means SAFE integer                  0 isolated inputs
+  MISSING  .max() counts characters                   0 isolated inputs
+  MISSING  .default({}) and inner defaults            0 isolated inputs
+  n/a      datetime() requires seconds (no field uses datetime)
+COVERAGE: 2 of 7 reachable behaviour changes

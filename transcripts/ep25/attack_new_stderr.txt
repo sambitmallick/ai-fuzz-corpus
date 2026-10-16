@@ -1,0 +1,5 @@
+--- generator output (untrusted, not read by the harness) ---
+COVERAGE: 7 of 7 reachable behaviour changes
+write blocked: ERR_ACCESS_DENIED
+spawn blocked: ERR_ACCESS_DENIED
+
